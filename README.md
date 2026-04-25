@@ -1,16 +1,21 @@
 # QAA Multi-Asset Portfolio Construction
 
-Refactored version of a Quantitative Asset Allocation course project originally developed as a single Python script.
+Refactored and extended version of a Quantitative Asset Allocation course project originally developed as a single Python script.
+
+The repository turns the assignment into a cleaner research workflow for **multi-asset portfolio construction, constrained allocation, Black-Litterman views, risk diagnostics, forward scenario analysis, and rolling out-of-sample evaluation**.
 
 ## What this repository does
 
-The project studies a **multi-asset allocation problem** using daily index data and compares several portfolio construction approaches:
+The project studies a multi-asset allocation problem using daily index data and compares several allocation approaches:
 
-- Mean-variance (Markowitz)
+- Mean-variance / Markowitz optimization
 - Constrained mean-variance optimization
 - Constrained downside-volatility minimization
-- Black-Litterman portfolio construction
-- Constrained Black-Litterman optimization
+- Equal Risk Contribution (ERC)
+- Maximum Diversification
+- Resampled mean-variance allocation
+- Endogenous Black-Litterman allocation
+- Constrained endogenous Black-Litterman allocation
 - Sortino-ratio maximization
 - Constrained Sortino-ratio maximization
 
@@ -19,10 +24,24 @@ It also includes:
 - exploratory analysis of the investment universe,
 - risk-return visualizations,
 - proxy equilibrium returns,
+- endogenous Black-Litterman views based on momentum, drawdown and correlation signals,
 - historical portfolio comparison,
-- forward scenario simulation,
-- risk metrics,
-- risk-adjusted performance metrics.
+- multivariate block-bootstrap forward scenario simulation,
+- rolling walk-forward out-of-sample backtest,
+- turnover-based transaction-cost adjustment,
+- VaR, Expected Shortfall, Max Drawdown, Sharpe, Sortino, Omega and Calmar diagnostics.
+
+## Why this version is stronger than the original assignment
+
+Compared with the original assignment, this version removes the weakest “toy” elements and adds a more defensible research layer:
+
+1. **No hard-coded local paths**: data loading is centralized in `src/qaa/data.py`.
+2. **Reusable project structure**: metrics, optimization, plotting and backtesting logic live in `src/qaa`.
+3. **Broader allocator set**: ERC, Maximum Diversification and Resampled MV are added to the original Markowitz / BL / Sortino comparison.
+4. **Endogenous BL views**: views are generated from cross-asset signals rather than being purely hand-coded.
+5. **More realistic forward scenarios**: the old GBM-style simulation is replaced by a multivariate stationary block bootstrap.
+6. **Walk-forward OOS layer**: allocation weights are re-estimated through time using only past data.
+7. **Transaction costs**: net returns subtract turnover-based costs at each rebalance.
 
 ## Repository structure
 
@@ -40,6 +59,7 @@ qaa-multi-asset-portfolio-repo/
 ├── src/
 │   └── qaa/
 │       ├── __init__.py
+│       ├── backtesting.py
 │       ├── config.py
 │       ├── data.py
 │       ├── metrics.py
@@ -94,29 +114,27 @@ notebooks/01_qaa_multi_asset_portfolio.ipynb
 
 and run the notebook top to bottom.
 
-## Main refactoring choices
+## Main limitations
 
-Compared with the original script, this repository:
+This is still a compact research repo, not a production portfolio engine. Key limitations:
 
-- removes hard-coded local Windows paths,
-- isolates reusable code into `src/qaa`,
-- reduces repeated function definitions,
-- separates data loading, metrics, optimization, and plotting,
-- makes the Black-Litterman block more standard and readable,
-- adds a project audit documenting important issues found in the original version.
-
-## Important note on faithfulness vs cleanup
-
-This repo is a **professionalized refactor**, not a byte-for-byte transcription of the original assignment.  
-Where the original script contained avoidable implementation issues or organizational problems, I preferred a cleaner research-repo structure over strict replication.
+- the investment universe is built from assignment data rather than tradable live ETF proxies;
+- transaction costs use a simple turnover-bps model;
+- forward scenarios are empirical bootstrap scenarios, not a full macro-financial scenario generator;
+- Black-Litterman view calibration is intentionally transparent and heuristic;
+- no formal unit-test suite is included yet.
 
 ## Next upgrades worth doing
 
-If you want to push this beyond a course-project repo, the next natural steps are:
+Potential extensions:
 
-1. add out-of-sample / rolling-window backtests,
-2. replace static estimates with shrinkage or regime-aware inputs,
-3. treat Black-Litterman views and confidence calibration more rigorously,
-4. add tests for metrics and optimizer constraints,
-5. export final figures/tables automatically to `reports/`.
+1. replace assignment indices with live investable ETF proxies,
+2. add covariance shrinkage and regime-conditioned inputs,
+3. introduce richer transaction-cost/slippage assumptions,
+4. validate allocator stability across subperiods,
+5. add unit tests for metrics, constraints and optimization outputs,
+6. export final figures/tables automatically to `reports/`.
 
+## Suggested CV description
+
+> Built a Python multi-asset portfolio-construction framework comparing mean-variance, downside-risk, Black-Litterman, ERC, maximum-diversification, resampled mean-variance and Sortino-based allocations under long-only and exposure constraints; evaluated portfolios through historical analysis, rolling walk-forward backtests, transaction-cost-adjusted returns, multivariate bootstrap scenarios, VaR/ES, MaxDD and risk-adjusted metrics.
