@@ -1,27 +1,11 @@
-
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, Iterable
 
 import numpy as np
 import pandas as pd
 import scipy.optimize as spopt
-
-
-@dataclass
-class ResampledMVResult:
-    weights: pd.Series
-    bootstrap_weights: pd.DataFrame
-    success_ratio: float
-
-
-@dataclass
-class EndogenousBLViews:
-    signal_table: pd.DataFrame
-    P: pd.DataFrame
-    q: pd.Series
-    confidences: pd.Series
 
 
 def portfolio_series(returns: pd.DataFrame, weights: np.ndarray | pd.Series) -> pd.Series:
@@ -155,94 +139,6 @@ def solve_sortino(
     )
 
 
-def _risk_contribution_budget_objective(weights: np.ndarray, sigma_annual: np.ndarray) -> float:
-    portfolio_var = float(weights @ sigma_annual @ weights)
-    marginal = sigma_annual @ weights
-    risk_contrib = weights * marginal / (portfolio_var + 1e-12)
-    target = np.repeat(1 / len(weights), len(weights))
-    return float(np.sum((risk_contrib - target) ** 2))
-
-
-def solve_equal_risk_contribution(
-    returns: pd.DataFrame,
-    bounds: list[tuple[float, float]],
-    constraints: list[dict],
-    periods_per_year: int = 252,
-) -> spopt.OptimizeResult:
-    sigma_annual = (returns.cov() * periods_per_year).values
-    w0 = np.repeat(1 / returns.shape[1], returns.shape[1])
-    return spopt.minimize(
-        _risk_contribution_budget_objective,
-        w0,
-        args=(sigma_annual,),
-        bounds=bounds,
-        method="SLSQP",
-        constraints=constraints,
-        options={"disp": False, "ftol": 1e-12, "maxiter": 2000},
-    )
-
-
-def _negative_diversification_ratio(weights: np.ndarray, returns: pd.DataFrame, periods_per_year: int = 252) -> float:
-    asset_vols = returns.std().values * np.sqrt(periods_per_year)
-    port_vol = portfolio_volatility(weights, returns, periods_per_year)
-    diversification_ratio = float(np.dot(weights, asset_vols) / (port_vol + 1e-12))
-    return -diversification_ratio
-
-
-def solve_max_diversification(
-    returns: pd.DataFrame,
-    bounds: list[tuple[float, float]],
-    constraints: list[dict],
-    periods_per_year: int = 252,
-) -> spopt.OptimizeResult:
-    w0 = np.repeat(1 / returns.shape[1], returns.shape[1])
-    return spopt.minimize(
-        _negative_diversification_ratio,
-        w0,
-        args=(returns, periods_per_year),
-        bounds=bounds,
-        method="SLSQP",
-        constraints=constraints,
-        options={"disp": False, "ftol": 1e-12, "maxiter": 2000},
-    )
-
-
-def resampled_mean_variance_weights(
-    returns: pd.DataFrame,
-    bounds: list[tuple[float, float]],
-    constraint_builder: Callable[[pd.DataFrame], list[dict]],
-    periods_per_year: int = 252,
-    n_bootstrap: int = 200,
-    sample_size: int | None = None,
-    seed: int = 42,
-) -> ResampledMVResult:
-    rng = np.random.default_rng(seed)
-    n_obs = len(returns)
-    sample_size = n_obs if sample_size is None else sample_size
-
-    weight_list: list[np.ndarray] = []
-    for _ in range(n_bootstrap):
-        idx = rng.integers(0, n_obs, size=sample_size)
-        sample = returns.iloc[idx].reset_index(drop=True)
-        constraints = constraint_builder(sample)
-        res = solve_min_vol(sample, bounds, constraints, periods_per_year)
-        if res.success and np.isfinite(res.fun):
-            weight_list.append(res.x)
-
-    if not weight_list:
-        raise RuntimeError("No successful bootstrap optimizations in resampled_mean_variance_weights.")
-
-    bootstrap_weights = pd.DataFrame(weight_list, columns=returns.columns)
-    avg_weights = bootstrap_weights.mean(axis=0).clip(lower=0.0)
-    avg_weights = avg_weights / avg_weights.sum()
-
-    return ResampledMVResult(
-        weights=avg_weights.rename("Resampled MV"),
-        bootstrap_weights=bootstrap_weights,
-        success_ratio=len(weight_list) / n_bootstrap,
-    )
-
-
 def implied_equilibrium_returns(
     sigma_annual: pd.DataFrame,
     equilibrium_weights: pd.Series,
@@ -286,101 +182,6 @@ def black_litterman_posterior_mean(
     return pd.Series(posterior.flatten(), index=sigma_annual.index, name="bl_posterior_mean")
 
 
-def _zscore(series: pd.Series) -> pd.Series:
-    std = series.std(ddof=0)
-    if std < 1e-12:
-        return pd.Series(0.0, index=series.index)
-    return (series - series.mean()) / std
-
-
-def build_endogenous_bl_views(
-    returns: pd.DataFrame,
-    periods_per_year: int = 252,
-    n_views: int = 3,
-    momentum_window: int = 126,
-    drawdown_window: int = 126,
-    corr_window: int = 63,
-    view_scale: float = 0.35,
-    confidence_floor: float = 0.35,
-    confidence_cap: float = 0.85,
-) -> EndogenousBLViews:
-    simple_returns = np.exp(returns) - 1.0
-
-    momentum_sample = simple_returns.tail(momentum_window)
-    momentum = (1.0 + momentum_sample).prod() - 1.0
-
-    dd_sample = simple_returns.tail(drawdown_window)
-    wealth = (1.0 + dd_sample).cumprod()
-    latest_drawdown = wealth.div(wealth.cummax()).iloc[-1] - 1.0
-    drawdown_score = -latest_drawdown
-
-    corr_sample = simple_returns.tail(corr_window)
-    avg_abs_corr = corr_sample.corr().abs().replace(1.0, np.nan).mean()
-    diversification_score = -avg_abs_corr.fillna(avg_abs_corr.mean())
-
-    vol_annual = returns.tail(momentum_window).std() * np.sqrt(periods_per_year)
-
-    composite = (
-        0.50 * _zscore(momentum)
-        + 0.30 * _zscore(drawdown_score)
-        + 0.20 * _zscore(diversification_score)
-    )
-
-    signal_table = pd.DataFrame(
-        {
-            "momentum_6m": momentum,
-            "latest_drawdown": latest_drawdown,
-            "avg_abs_corr": avg_abs_corr,
-            "vol_annual": vol_annual,
-            "composite_score": composite,
-        }
-    ).sort_values("composite_score", ascending=False)
-    signal_table["rank"] = np.arange(1, len(signal_table) + 1)
-
-    n_assets = len(signal_table)
-    n_views = max(1, min(n_views, n_assets // 2))
-    top_assets = signal_table.index[:n_views]
-    bottom_assets = signal_table.index[-n_views:][::-1]
-
-    spread_scores = []
-    rows = []
-    q_vals = []
-    conf_vals = []
-    view_names = []
-
-    score_range = composite.max() - composite.min() + 1e-12
-    for idx, (long_asset, short_asset) in enumerate(zip(top_assets, bottom_assets), start=1):
-        row = pd.Series(0.0, index=returns.columns)
-        row[long_asset] = 1.0
-        row[short_asset] = -1.0
-
-        spread_score = float(composite[long_asset] - composite[short_asset])
-        spread_vol = float((vol_annual[long_asset] + vol_annual[short_asset]) / 2.0)
-        q_val = view_scale * np.tanh(spread_score) * spread_vol
-        confidence = confidence_floor + (confidence_cap - confidence_floor) * min(1.0, abs(spread_score) / score_range)
-
-        rows.append(row.values)
-        q_vals.append(q_val)
-        conf_vals.append(confidence)
-        spread_scores.append(spread_score)
-        view_names.append(f"view_{idx}: {long_asset} > {short_asset}")
-
-    P = pd.DataFrame(rows, index=view_names, columns=returns.columns)
-    q = pd.Series(q_vals, index=view_names, name="q")
-    confidences = pd.Series(conf_vals, index=view_names, name="confidence")
-
-    signal_table["z_momentum"] = _zscore(signal_table["momentum_6m"])
-    signal_table["z_drawdown"] = _zscore(drawdown_score.reindex(signal_table.index))
-    signal_table["z_diversification"] = _zscore(diversification_score.reindex(signal_table.index))
-
-    return EndogenousBLViews(
-        signal_table=signal_table,
-        P=P,
-        q=q,
-        confidences=confidences,
-    )
-
-
 def simulate_gbm_paths(
     x0: float,
     mu: float,
@@ -402,3 +203,223 @@ def simulate_gbm_paths(
 
 def simulation_log_returns(paths: pd.DataFrame) -> pd.DataFrame:
     return np.log(paths).diff().dropna()
+
+
+@dataclass
+class ResampledMVResult:
+    weights: pd.Series
+    bootstrap_weights: pd.DataFrame
+    success_ratio: float
+
+
+@dataclass
+class EndogenousBLViews:
+    P: pd.DataFrame
+    q: pd.Series
+    confidences: pd.Series
+    signal_table: pd.DataFrame
+
+
+def _as_series_weights(x: np.ndarray, index: pd.Index, name: str | None = None) -> pd.Series:
+    return pd.Series(np.asarray(x, dtype=float), index=index, name=name)
+
+
+def risk_contributions(weights: np.ndarray, cov_annual: pd.DataFrame | np.ndarray) -> np.ndarray:
+    cov = cov_annual.values if isinstance(cov_annual, pd.DataFrame) else np.asarray(cov_annual, dtype=float)
+    port_var = float(weights @ cov @ weights)
+    if port_var <= 0:
+        return np.zeros_like(weights)
+    marginal = cov @ weights
+    return weights * marginal / port_var
+
+
+def solve_equal_risk_contribution(
+    returns: pd.DataFrame,
+    bounds: list[tuple[float, float]],
+    constraints: list[dict],
+    periods_per_year: int = 252,
+) -> spopt.OptimizeResult:
+    cov = returns.cov() * periods_per_year
+    n_assets = returns.shape[1]
+    target = np.repeat(1 / n_assets, n_assets)
+
+    def objective(w: np.ndarray) -> float:
+        rc = risk_contributions(w, cov)
+        return float(np.sum((rc - target) ** 2))
+
+    w0 = np.repeat(1 / n_assets, n_assets)
+    return spopt.minimize(
+        objective,
+        w0,
+        bounds=bounds,
+        method="SLSQP",
+        constraints=constraints,
+        options={"disp": False, "ftol": 1e-10, "maxiter": 1000},
+    )
+
+
+def diversification_ratio(weights: np.ndarray, returns: pd.DataFrame, periods_per_year: int = 252) -> float:
+    cov = returns.cov().values * periods_per_year
+    asset_vols = returns.std().values * np.sqrt(periods_per_year)
+    numerator = float(weights @ asset_vols)
+    denominator = float(np.sqrt(weights @ cov @ weights))
+    return numerator / (denominator + 1e-12)
+
+
+def solve_max_diversification(
+    returns: pd.DataFrame,
+    bounds: list[tuple[float, float]],
+    constraints: list[dict],
+    periods_per_year: int = 252,
+) -> spopt.OptimizeResult:
+    n_assets = returns.shape[1]
+
+    def objective(w: np.ndarray) -> float:
+        return -diversification_ratio(w, returns, periods_per_year)
+
+    w0 = np.repeat(1 / n_assets, n_assets)
+    return spopt.minimize(
+        objective,
+        w0,
+        bounds=bounds,
+        method="SLSQP",
+        constraints=constraints,
+        options={"disp": False, "ftol": 1e-10, "maxiter": 1000},
+    )
+
+
+def resampled_mean_variance_weights(
+    returns: pd.DataFrame,
+    bounds: list[tuple[float, float]],
+    constraints_builder: Callable[[pd.DataFrame], list[dict]],
+    periods_per_year: int = 252,
+    n_bootstrap: int = 250,
+    seed: int = 42,
+) -> ResampledMVResult:
+    rng = np.random.default_rng(seed)
+    cols = returns.columns
+    fitted_weights = []
+    n_obs = len(returns)
+    for _ in range(n_bootstrap):
+        sample_idx = rng.integers(0, n_obs, size=n_obs)
+        sample = returns.iloc[sample_idx].reset_index(drop=True)
+        sample.columns = cols
+        res = solve_min_vol(sample, bounds, constraints_builder(sample), periods_per_year)
+        if res.success and np.all(np.isfinite(res.x)):
+            fitted_weights.append(res.x)
+
+    if not fitted_weights:
+        res = solve_min_vol(returns, bounds, constraints_builder(returns), periods_per_year)
+        fitted_weights = [res.x]
+
+    bw = pd.DataFrame(fitted_weights, columns=cols)
+    avg = bw.mean(axis=0)
+    avg = avg / avg.sum()
+    return ResampledMVResult(
+        weights=avg.rename("resampled_mv"),
+        bootstrap_weights=bw,
+        success_ratio=len(fitted_weights) / n_bootstrap,
+    )
+
+
+def _zscore(s: pd.Series) -> pd.Series:
+    std = s.std(ddof=0)
+    if std == 0 or not np.isfinite(std):
+        return pd.Series(0.0, index=s.index)
+    return (s - s.mean()) / std
+
+
+def build_endogenous_bl_views(
+    returns: pd.DataFrame,
+    periods_per_year: int = 252,
+    n_views: int = 3,
+    momentum_window: int = 126,
+    drawdown_window: int = 126,
+    corr_window: int = 63,
+    view_scale: float = 0.35,
+) -> EndogenousBLViews:
+    trailing = returns.dropna().copy()
+    momentum = trailing.tail(momentum_window).sum() * periods_per_year / momentum_window
+    wealth = np.exp(trailing.tail(drawdown_window).cumsum())
+    latest_drawdown = wealth.iloc[-1] / wealth.cummax().iloc[-1] - 1
+    corr = trailing.tail(corr_window).corr().abs()
+    avg_abs_corr = (corr.sum(axis=1) - 1) / (len(corr) - 1)
+    vol_annual = trailing.tail(momentum_window).std() * np.sqrt(periods_per_year)
+
+    score = _zscore(momentum) + _zscore(latest_drawdown) - 0.5 * _zscore(avg_abs_corr) - 0.25 * _zscore(vol_annual)
+    signal_table = pd.DataFrame(
+        {
+            "momentum_6m": momentum,
+            "latest_drawdown": latest_drawdown,
+            "avg_abs_corr": avg_abs_corr,
+            "vol_annual": vol_annual,
+            "composite_score": score,
+        }
+    ).sort_values("composite_score", ascending=False)
+    signal_table["rank"] = np.arange(1, len(signal_table) + 1)
+
+    top = list(signal_table.head(n_views).index)
+    bottom = list(signal_table.tail(n_views).index[::-1])
+    rows = []
+    q_vals = []
+    conf_vals = []
+    view_names = []
+    for i, (winner, loser) in enumerate(zip(top, bottom), start=1):
+        p = pd.Series(0.0, index=returns.columns)
+        p[winner] = 1.0
+        p[loser] = -1.0
+        score_gap = signal_table.loc[winner, "composite_score"] - signal_table.loc[loser, "composite_score"]
+        vol_gap = np.sqrt(vol_annual[winner] ** 2 + vol_annual[loser] ** 2)
+        q = max(0.005, view_scale * score_gap * vol_gap / np.sqrt(periods_per_year))
+        confidence = float(np.clip(0.35 + 0.10 * abs(score_gap), 0.35, 0.85))
+        rows.append(p)
+        q_vals.append(q)
+        conf_vals.append(confidence)
+        view_names.append(f"View {i}: {winner} > {loser}")
+
+    P = pd.DataFrame(rows, index=view_names, columns=returns.columns)
+    q = pd.Series(q_vals, index=view_names, name="q")
+    confidences = pd.Series(conf_vals, index=view_names, name="confidence")
+    return EndogenousBLViews(P=P, q=q, confidences=confidences, signal_table=signal_table)
+
+
+def stationary_bootstrap_indices(
+    n_obs: int,
+    n_steps: int,
+    n_sims: int,
+    avg_block_length: int = 21,
+    seed: int = 2800,
+) -> np.ndarray:
+    rng = np.random.default_rng(seed)
+    p = 1.0 / avg_block_length
+    idx = np.empty((n_steps, n_sims), dtype=int)
+    idx[0] = rng.integers(0, n_obs, size=n_sims)
+    starts = rng.integers(0, n_obs, size=(n_steps, n_sims))
+    switches = rng.random((n_steps, n_sims)) < p
+    for t in range(1, n_steps):
+        idx[t] = np.where(switches[t], starts[t], (idx[t - 1] + 1) % n_obs)
+    return idx
+
+
+def simulate_block_bootstrap_portfolio_returns(
+    asset_returns: pd.DataFrame,
+    weights: pd.DataFrame | pd.Series,
+    n_years: int = 22,
+    periods_per_year: int = 252,
+    n_sims: int = 1000,
+    avg_block_length: int = 21,
+    seed: int = 2800,
+) -> dict[str, pd.DataFrame] | pd.DataFrame:
+    n_steps = n_years * periods_per_year
+    idx = stationary_bootstrap_indices(len(asset_returns), n_steps, n_sims, avg_block_length, seed)
+    boot = asset_returns.values[idx]
+
+    if isinstance(weights, pd.Series):
+        wr = boot @ weights.reindex(asset_returns.columns).fillna(0.0).values
+        return pd.DataFrame(wr)
+
+    simulated = {}
+    for name in weights.columns:
+        w = weights[name].reindex(asset_returns.columns).fillna(0.0).values
+        simulated[name] = pd.DataFrame(boot @ w)
+    return simulated
