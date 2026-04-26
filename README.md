@@ -134,7 +134,3 @@ Potential extensions:
 4. validate allocator stability across subperiods,
 5. add unit tests for metrics, constraints and optimization outputs,
 6. export final figures/tables automatically to `reports/`.
-
-## Suggested CV description
-
-> Built a Python multi-asset portfolio-construction framework comparing mean-variance, downside-risk, Black-Litterman, ERC, maximum-diversification, resampled mean-variance and Sortino-based allocations under long-only and exposure constraints; evaluated portfolios through historical analysis, rolling walk-forward backtests, transaction-cost-adjusted returns, multivariate bootstrap scenarios, VaR/ES, MaxDD and risk-adjusted metrics.
