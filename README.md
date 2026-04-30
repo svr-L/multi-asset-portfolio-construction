@@ -1,6 +1,6 @@
 # Multi-Asset Portfolio Construction with Yahoo Finance ETF Proxies
 
-A standalone Python notebook for **multi-asset portfolio construction** using **Yahoo Finance ETF proxies** to compare classical and robust allocators under realistic portfolio constraints, rolling walk-forward rebalancing, transaction costs, and multivariate stationary-bootstrap scenarios.
+A Python framework for **multi-asset portfolio construction** using **Yahoo Finance ETF proxies** to compare classical and robust allocators under realistic portfolio constraints, rolling walk-forward rebalancing, transaction costs, and multivariate stationary-bootstrap scenarios.
 
 ## Overview
 
