@@ -1,136 +1,164 @@
-# QAA Multi-Asset Portfolio Construction
+# Multi-Asset Portfolio Construction with Yahoo Finance ETF Proxies
 
-Refactored and extended version of a Quantitative Asset Allocation course project originally developed as a single Python script.
+A standalone Python notebook for **multi-asset portfolio construction** using **Yahoo Finance ETF proxies** to compare classical and robust allocators under realistic portfolio constraints, rolling walk-forward rebalancing, transaction costs, and multivariate stationary-bootstrap scenarios.
 
-The repository turns the assignment into a cleaner research workflow for **multi-asset portfolio construction, constrained allocation, Black-Litterman views, risk diagnostics, forward scenario analysis, and rolling out-of-sample evaluation**.
+## Overview
 
-## What this repository does
+This project builds a compact **multi-asset allocation research framework** around broad ETF sleeves downloaded directly from Yahoo Finance. It compares several portfolio construction approaches under:
 
-The project studies a multi-asset allocation problem using daily index data and compares several allocation approaches:
+- **long-only allocation bounds**
+- **exposure constraints across defensive, credit, equity, and real-asset buckets**
+- **rolling walk-forward backtests**
+- **turnover-based transaction costs**
+- **multivariate stationary-bootstrap scenarios**
 
-- Mean-variance / Markowitz optimization
-- Constrained mean-variance optimization
-- Constrained downside-volatility minimization
-- Equal Risk Contribution (ERC)
-- Maximum Diversification
-- Resampled mean-variance allocation
-- Endogenous Black-Litterman allocation
-- Constrained endogenous Black-Litterman allocation
-- Sortino-ratio maximization
-- Constrained Sortino-ratio maximization
+The objective is not just to maximize an in-sample Sharpe ratio, but to compare how different allocators behave once **rebalancing, frictions, and scenario uncertainty** are introduced.
 
-It also includes:
+## ETF Universe
 
-- exploratory analysis of the investment universe,
-- risk-return visualizations,
-- proxy equilibrium returns,
-- endogenous Black-Litterman views based on momentum, drawdown and correlation signals,
-- historical portfolio comparison,
-- multivariate block-bootstrap forward scenario simulation,
-- rolling walk-forward out-of-sample backtest,
-- turnover-based transaction-cost adjustment,
-- VaR, Expected Shortfall, Max Drawdown, Sharpe, Sortino, Omega and Calmar diagnostics.
+The asset universe is built from broad ETF proxies representing distinct sleeves of a diversified multi-asset portfolio:
 
-## Why this version is stronger than the original assignment
+- **Cash / T-Bills:** `BIL`
+- **Intermediate Treasuries:** `IEF`
+- **TIPS:** `TIP`
+- **Investment Grade Credit:** `LQD`
+- **High Yield Credit:** `HYG`
+- **U.S. Equity:** `VTI`
+- **Developed ex-U.S. Equity:** `EFA`
+- **Emerging Markets Equity:** `VWO`
+- **Gold:** `GLD`
+- **Broad Commodities:** `DBC`
 
-Compared with the original assignment, this version removes the weakest “toy” elements and adds a more defensible research layer:
+These are not perfectly mutually exclusive asset classes in a strict risk-factor sense, but they provide clean, interpretable ETF proxies for broad portfolio sleeves.
 
-1. **No hard-coded local paths**: data loading is centralized in `src/qaa/data.py`.
-2. **Reusable project structure**: metrics, optimization, plotting and backtesting logic live in `src/qaa`.
-3. **Broader allocator set**: ERC, Maximum Diversification and Resampled MV are added to the original Markowitz / BL / Sortino comparison.
-4. **Endogenous BL views**: views are generated from cross-asset signals rather than being purely hand-coded.
-5. **More realistic forward scenarios**: the old GBM-style simulation is replaced by a multivariate stationary block bootstrap.
-6. **Walk-forward OOS layer**: allocation weights are re-estimated through time using only past data.
-7. **Transaction costs**: net returns subtract turnover-based costs at each rebalance.
+## Allocators Compared
 
-## Repository structure
+The notebook compares the following portfolio construction methods:
 
-```text
-qaa-multi-asset-portfolio-repo/
-├── README.md
-├── PROJECT_AUDIT.md
-├── requirements.txt
-├── .gitignore
-├── data/
-│   ├── raw/
-│   └── processed/
-├── notebooks/
-│   └── 01_qaa_multi_asset_portfolio.ipynb
-├── src/
-│   └── qaa/
-│       ├── __init__.py
-│       ├── backtesting.py
-│       ├── config.py
-│       ├── data.py
-│       ├── metrics.py
-│       ├── optimization.py
-│       └── plotting.py
-└── original/
-    └── QAA Assignment_Saverio Lauriola.py
-```
+- **Mean-Variance**
+- **Constrained Mean-Variance**
+- **Downside-Risk Minimization**
+- **Sortino-based Allocation**
+- **Equal Risk Contribution (ERC)**
+- **Maximum Diversification**
+- **Resampled Mean-Variance**
+- **Endogenous Black-Litterman**
 
-## Data requirements
+The **Black-Litterman block** uses internally generated views rather than fully manual discretionary inputs.
 
-The original assignment script expects two Excel files:
+## Research Workflow
 
-- `Database_gg3.xlsx`
-- `Database_gg.xlsx`
+The notebook follows this sequence:
 
-Place them in:
+1. **Download ETF prices from Yahoo Finance**
+2. Build **log-return series**
+3. Inspect basic diagnostics:
+   - annualized returns
+   - volatility
+   - correlation structure
+4. Define:
+   - allocation bounds
+   - exposure constraints
+   - endogenous Black-Litterman inputs
+5. Solve the allocator horse race
+6. Evaluate in sample with:
+   - annualized return / volatility
+   - downside volatility
+   - historical and parametric VaR / ES
+   - Max Drawdown
+   - Sharpe / Sortino / Omega / Calmar
+7. Run **rolling walk-forward backtests**
+8. Adjust returns for **turnover-based transaction costs**
+9. Compare allocators under **multivariate stationary-bootstrap scenarios**
 
-```text
-data/raw/
-```
+## Key Features
 
-The notebook is written so that you can run the full workflow once those files are available.
+- **Standalone notebook**
+  - no project-root lookup
+  - no external package structure required
+- **Direct Yahoo Finance download**
+  - one cell to refresh the full ETF universe
+- **Optional local cache**
+  - avoids repeated downloads when not needed
+- **Allocator horse race**
+  - compares both classical and more robust portfolio construction approaches
+- **Walk-forward evaluation**
+  - avoids relying only on static in-sample results
+- **Bootstrap scenarios**
+  - adds distributional stress testing beyond simple point estimates
 
-## Setup
+## How to Run
 
-Create an environment and install dependencies:
-
-```bash
-pip install -r requirements.txt
-```
-
-Then launch Jupyter:
+### 1. Install dependencies
 
 ```bash
-jupyter lab
+pip install yfinance pandas numpy matplotlib scipy openpyxl
 ```
 
-or
+### 2. Open the notebook
 
-```bash
-jupyter notebook
+Run:
+
+- the **parameter cell**
+- the **Yahoo Finance download cell**
+
+If you want fresh data, keep:
+
+```python
+REFRESH_DATA = True
 ```
 
-## How to run
+If you want to reuse previously downloaded data, set:
 
-Open:
+```python
+REFRESH_DATA = False
+```
+
+## Repository Structure
 
 ```text
-notebooks/01_qaa_multi_asset_portfolio.ipynb
+.
+├── qaa_multi_asset_portfolio.ipynb
+└── README.md
 ```
 
-and run the notebook top to bottom.
+## Why this project matters
 
-## Main limitations
+Classical portfolio optimization often looks good on paper and weak in implementation because it is highly sensitive to:
 
-This is still a compact research repo, not a production portfolio engine. Key limitations:
+- estimation error
+- unstable weights
+- rebalancing frictions
+- changing dependence structure
 
-- the investment universe is built from assignment data rather than tradable live ETF proxies;
-- transaction costs use a simple turnover-bps model;
-- forward scenarios are empirical bootstrap scenarios, not a full macro-financial scenario generator;
-- Black-Litterman view calibration is intentionally transparent and heuristic;
-- no formal unit-test suite is included yet.
+This notebook is designed to make those issues explicit by moving from a static coursework-style allocation exercise toward a more realistic **allocator comparison framework**.
 
-## Next upgrades worth doing
+## Current Limitations
 
-Potential extensions:
+This is already a meaningful research notebook, but several extensions would improve it further:
 
-1. replace assignment indices with live investable ETF proxies,
-2. add covariance shrinkage and regime-conditioned inputs,
-3. introduce richer transaction-cost/slippage assumptions,
-4. validate allocator stability across subperiods,
-5. add unit tests for metrics, constraints and optimization outputs,
-6. export final figures/tables automatically to `reports/`.
+- covariance shrinkage
+- explicit turnover penalty in the optimizer
+- stronger endogenous Black-Litterman signal design
+- more formal stability diagnostics for portfolio weights
+- regime-aware covariance or macro-conditioned priors
+
+## Possible Next Steps
+
+High-ROI extensions include:
+
+1. **Covariance shrinkage**
+2. **Turnover penalty directly in the objective**
+3. **Weight stability diagnostics**
+4. **Improved endogenous Black-Litterman signals**
+5. **Stress testing in covariance / factor space**
+
+## Notes
+
+- The notebook uses **ETF proxies**, not total-return institutional indices.
+- Results will vary depending on:
+  - sample period
+  - transaction-cost assumptions
+  - rebalancing frequency
+  - bootstrap settings
+- The stationary-bootstrap section is intended to complement the walk-forward results, not replace them.
